@@ -141,6 +141,11 @@ async function uploadVideo(filePath, categoryID, token, description) {
 
 async function handleRender(req, res, theme) {
   try {
+
+    if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(" ")[1];
 
@@ -175,7 +180,7 @@ async function handleRender(req, res, theme) {
 
     const videoPath = await renderAd(theme, data);
 
-    const tempVideoUrl = `${baseUrl}/${videoPath}`;
+   const tempVideoUrl = `${baseUrl}/videos/${path.basename(videoPath)}`;
 
     res.json({
       success: true,
