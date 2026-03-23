@@ -105,7 +105,10 @@ async function renderAd(themeId, data) {
     codec: "h264",
     outputLocation: outputFile,
     inputProps: data,
-    concurrency: 2,
+     concurrency: 1,
+  puppeteerOptions: {
+    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+  },
   });
 
   return outputFile;
