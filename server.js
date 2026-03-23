@@ -100,7 +100,7 @@ async function renderAd(themeId, data) {
     inputProps,
   });
 
-  const outputFile = `videos/ad-${Date.now()}.mp4`;
+  const outputFile = path.join(videosDir, `ad-${Date.now()}.mp4`);
 
   await renderMedia({
     composition: {
@@ -205,6 +205,8 @@ setInterval(() => {
 
 const cleanupOldFiles = (directory) => {
   try {
+    if (!fs.existsSync(directory)) return;
+
     const files = fs.readdirSync(directory);
 
     files.forEach((file) => {
