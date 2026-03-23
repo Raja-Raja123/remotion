@@ -18,7 +18,7 @@ export const AdVideo = ({ productName, price, image,audio }) => {
         />
       )}
       <Img
-        src={image.includes("/uploads/") ? `file://${image}` : image}
+        src={image}
         style={{ width: 500, borderRadius: 20 }}
       />
 

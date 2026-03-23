@@ -158,9 +158,9 @@ async function handleRender(req, res, theme) {
       process.env.BASE_URL || `http://localhost:${PORT}`;
 
     const images =
-      req.files?.images?.map((f) =>
-        path.join(uploadsDir, f.filename)
-      ) || [];
+  req.files?.images?.map(
+    (file) => `${baseUrl}/uploads/${file.filename}`
+  ) || [];
 
     const audio = req.files?.audio?.[0]
       ? path.join(uploadsDir, req.files.audio[0].filename)
