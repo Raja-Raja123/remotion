@@ -209,12 +209,17 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 
 const cleanupOldFiles = (directory) => {
+  let files;
+
   try {
-    if (!fs.existsSync(directory)) return;
+    files = fs.readdirSync(directory);
+  } catch (err) {
+    // ✅ Folder doesn't exist → just skip
+    return;
+  }
 
-    const files = fs.readdirSync(directory);
-
-    files.forEach((file) => {
+  files.forEach((file) => {
+    try {
       const filePath = path.join(directory, file);
       const stats = fs.statSync(filePath);
 
@@ -224,10 +229,11 @@ const cleanupOldFiles = (directory) => {
         fs.unlinkSync(filePath);
         console.log(`Deleted temp file: ${file}`);
       }
-    });
-  } catch (err) {
-    console.error("Cleanup error:", err);
-  }
+    } catch (err) {
+      // ✅ Skip individual file errors
+      console.error("File cleanup error:", err.message);
+    }
+  });
 };
 
 /* ---------------- ROUTES ---------------- */
