@@ -20,17 +20,15 @@ app.use(express.urlencoded({ extended: true }));
 const videosDir = path.join(__dirname, "videos");
 const uploadsDir = path.join(__dirname, "uploads");
 
-/* ---------------- SAFE FOLDER CREATION FUNCTION ---------------- */
+/* ---------------- SAFE DIR ---------------- */
 
 const ensureDir = (dir) => {
   try {
     fs.mkdirSync(dir, { recursive: true });
-  } catch (err) {
-    console.error("Dir create error:", err.message);
-  }
+  } catch {}
 };
 
-/* ---------------- ENSURE AT START ---------------- */
+/* ---------------- INIT DIR ---------------- */
 
 ensureDir(videosDir);
 ensureDir(uploadsDir);
@@ -40,19 +38,18 @@ ensureDir(uploadsDir);
 app.use("/uploads", express.static(uploadsDir));
 app.use("/videos", express.static(videosDir));
 
-/* ---------------- MULTER (CRITICAL FIX) ---------------- */
+/* ---------------- MULTER ---------------- */
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // 🔥 ensure before every upload (IMPORTANT)
-    ensureDir(uploadsDir);
+    ensureDir(uploadsDir); // 🔥 critical
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
-    const uniqueName =
+    const name =
       Date.now() + "-" + Math.random().toString(36).slice(2);
-    cb(null, uniqueName + ext);
+    cb(null, name + ext);
   },
 });
 
@@ -75,16 +72,14 @@ const durationMap = {
   18: 540,
 };
 
-/* ---------------- REMOTION BUNDLE ---------------- */
+/* ---------------- REMOTION ---------------- */
 
 let bundleLocation;
 
 const prepareBundle = async () => {
   bundleLocation = await bundle("./src/index.jsx");
-  console.log("Remotion bundle ready");
+  console.log("✅ Remotion bundle ready");
 };
-
-prepareBundle().catch(console.error);
 
 /* ---------------- RENDER ---------------- */
 
@@ -97,7 +92,6 @@ async function renderAd(themeId, data) {
     inputProps: data,
   });
 
-  // 🔥 ensure videos dir before render
   ensureDir(videosDir);
 
   const outputFile = path.join(videosDir, `ad-${Date.now()}.mp4`);
@@ -126,13 +120,16 @@ async function uploadVideo(filePath, categoryID, token, description) {
       folder: "generated_ads",
     });
 
-    const videoUrl = result.secure_url;
+    await sendVideoToLaravel(
+      result.secure_url,
+      categoryID,
+      token,
+      description
+    );
 
-    await sendVideoToLaravel(videoUrl, categoryID, token, description);
-
-    return videoUrl;
-  } catch (error) {
-    console.error("Cloudinary upload failed:", error);
+    return result.secure_url;
+  } catch (err) {
+    console.error("Cloudinary error:", err);
   }
 }
 
@@ -140,9 +137,17 @@ async function uploadVideo(filePath, categoryID, token, description) {
 
 async function handleRender(req, res, theme) {
   try {
-    // 🔥 ensure both folders every request
+    // 🔥 ensure dirs
     ensureDir(uploadsDir);
     ensureDir(videosDir);
+
+    // 🔥 IMPORTANT SAFETY
+    if (!bundleLocation) {
+      return res.status(500).json({
+        success: false,
+        error: "Server not ready yet, try again in few seconds",
+      });
+    }
 
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(" ")[1];
@@ -152,10 +157,9 @@ async function handleRender(req, res, theme) {
     const baseUrl =
       process.env.BASE_URL || `http://localhost:${PORT}`;
 
-    // ✅ ABSOLUTE PATHS (FINAL FIX)
     const images =
-      req.files?.images?.map((file) =>
-        path.join(uploadsDir, file.filename)
+      req.files?.images?.map((f) =>
+        path.join(uploadsDir, f.filename)
       ) || [];
 
     const audio = req.files?.audio?.[0]
@@ -176,13 +180,12 @@ async function handleRender(req, res, theme) {
       duration: Number(body.duration),
     };
 
-    console.log("🔥 Rendering started");
+    console.log("🔥 Rendering...");
 
     const videoPath = await renderAd(theme, data);
 
-    console.log("✅ Render done:", videoPath);
+    console.log("✅ Render done");
 
-    // ✅ FIXED URL
     const tempVideoUrl = `${baseUrl}/videos/${path.basename(videoPath)}`;
 
     res.json({
@@ -192,17 +195,17 @@ async function handleRender(req, res, theme) {
 
     uploadVideo(videoPath, body.category_id, token, body.description);
 
-  } catch (error) {
-    console.error("🔥 HANDLE ERROR:", error);
+  } catch (err) {
+    console.error("🔥 ERROR:", err);
 
     res.status(500).json({
       success: false,
-      error: error.message,
+      error: err.message,
     });
   }
 }
 
-/* ---------------- CLEANUP (FINAL SAFE) ---------------- */
+/* ---------------- CLEANUP ---------------- */
 
 const TEMP_FILE_MAX_AGE = 20 * 60 * 1000;
 
@@ -211,18 +214,17 @@ setInterval(() => {
   cleanupOldFiles(uploadsDir);
 }, 10 * 60 * 1000);
 
-const cleanupOldFiles = (directory) => {
+const cleanupOldFiles = (dir) => {
   let files;
-
   try {
-    files = fs.readdirSync(directory);
+    files = fs.readdirSync(dir);
   } catch {
-    return; // folder missing → ignore
+    return;
   }
 
   for (const file of files) {
     try {
-      const filePath = path.join(directory, file);
+      const filePath = path.join(dir, file);
       const stats = fs.statSync(filePath);
 
       if (Date.now() - stats.mtimeMs > TEMP_FILE_MAX_AGE) {
@@ -243,15 +245,12 @@ const mediaUpload = upload.fields([
 app.post("/render/modern", mediaUpload, (req, res) =>
   handleRender(req, res, "ThemeModern")
 );
-
 app.post("/render/dynamic", mediaUpload, (req, res) =>
   handleRender(req, res, "ThemeDynamic")
 );
-
 app.post("/render/retro", mediaUpload, (req, res) =>
   handleRender(req, res, "ThemeRetro")
 );
-
 app.post("/render/cinematic", mediaUpload, (req, res) =>
   handleRender(req, res, "ThemeCinematic")
 );
@@ -260,10 +259,20 @@ app.get("/", (req, res) => {
   res.send("Remotion server running");
 });
 
-/* ---------------- START ---------------- */
+/* ---------------- START (CRITICAL FIX) ---------------- */
 
 const PORT = process.env.PORT || 8000;
 
-app.listen(PORT, () => {
-  console.log(`Server running on ${PORT}`);
-});
+const startServer = async () => {
+  try {
+    await prepareBundle(); // 🔥 WAIT HERE
+
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on ${PORT}`);
+    });
+  } catch (err) {
+    console.error("Startup error:", err);
+  }
+};
+
+startServer();
