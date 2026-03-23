@@ -157,18 +157,18 @@ async function handleRender(req, res, theme) {
     const baseUrl =
       process.env.BASE_URL || `http://localhost:${PORT}`;
 
-    const images =
+   const images =
   req.files?.images?.map(
     (file) => `${baseUrl}/uploads/${file.filename}`
   ) || [];
 
-    const audio = req.files?.audio?.[0]
-      ? path.join(uploadsDir, req.files.audio[0].filename)
-      : null;
+const audio = req.files?.audio?.[0]
+  ? `${baseUrl}/uploads/${req.files.audio[0].filename}`
+  : null;
 
-    const video = req.files?.video?.[0]
-      ? path.join(uploadsDir, req.files.video[0].filename)
-      : null;
+const video = req.files?.video?.[0]
+  ? `${baseUrl}/uploads/${req.files.video[0].filename}`
+  : null;
 
     console.log("Images:", images);
 
