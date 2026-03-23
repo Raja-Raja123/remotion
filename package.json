@@ -1,0 +1,27 @@
+{
+  "name": "remotion-server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon server.js",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@remotion/bundler": "^4.0.434",
+    "@remotion/renderer": "^4.0.434",
+    "axios": "^1.13.6",
+    "body-parser": "^2.2.2",
+    "cloudinary": "^2.9.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "multer": "^2.1.1",
+    "nodemon": "^3.1.14",
+    "remotion": "^4.0.434"
+  }
+}
