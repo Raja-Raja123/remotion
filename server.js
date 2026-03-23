@@ -8,39 +8,45 @@ const multer = require("multer");
 const { bundle } = require("@remotion/bundler");
 const { renderMedia, selectComposition } = require("@remotion/renderer");
 const { sendVideoToLaravel } = require("./services/sendVideoToLaravel");
-
 const cloudinary = require("cloudinary").v2;
 
 const app = express();
 app.use(cors());
-
-// ✅ FIX 1: Body parser added
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-/* ---------------- ENSURE FOLDERS EXIST ---------------- */
+/* ---------------- PATHS ---------------- */
 
 const videosDir = path.join(__dirname, "videos");
 const uploadsDir = path.join(__dirname, "uploads");
 
-if (!fs.existsSync(videosDir)) {
-  fs.mkdirSync(videosDir, { recursive: true });
-}
+/* ---------------- SAFE FOLDER CREATION FUNCTION ---------------- */
 
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+const ensureDir = (dir) => {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    console.error("Dir create error:", err.message);
+  }
+};
 
-/* ---------------- SERVE STATIC FILES ---------------- */
+/* ---------------- ENSURE AT START ---------------- */
+
+ensureDir(videosDir);
+ensureDir(uploadsDir);
+
+/* ---------------- STATIC ---------------- */
 
 app.use("/uploads", express.static(uploadsDir));
 app.use("/videos", express.static(videosDir));
 
-/* ---------------- MULTER SETUP ---------------- */
+/* ---------------- MULTER (CRITICAL FIX) ---------------- */
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, uploadsDir); // ✅ FIX 2: safe path
+    // 🔥 ensure before every upload (IMPORTANT)
+    ensureDir(uploadsDir);
+    cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
@@ -52,7 +58,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-/* ---------------- CLOUDINARY CONFIG ---------------- */
+/* ---------------- CLOUDINARY ---------------- */
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -60,7 +66,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-/* ---------------- VIDEO DURATIONS ---------------- */
+/* ---------------- DURATION ---------------- */
 
 const durationMap = {
   6: 180,
@@ -78,27 +84,21 @@ const prepareBundle = async () => {
   console.log("Remotion bundle ready");
 };
 
-// ✅ FIX 3: error handling
-prepareBundle().catch((err) => {
-  console.error("Bundle failed:", err);
-});
+prepareBundle().catch(console.error);
 
-/* ---------------- VIDEO RENDER FUNCTION ---------------- */
+/* ---------------- RENDER ---------------- */
 
 async function renderAd(themeId, data) {
   const durationFrames = durationMap[data.duration] || 300;
-  const images = (data.images || []).slice(0, 6);
-
-  const inputProps = {
-    ...data,
-    images,
-  };
 
   const composition = await selectComposition({
     serveUrl: bundleLocation,
     id: themeId,
-    inputProps,
+    inputProps: data,
   });
+
+  // 🔥 ensure videos dir before render
+  ensureDir(videosDir);
 
   const outputFile = path.join(videosDir, `ad-${Date.now()}.mp4`);
 
@@ -110,14 +110,14 @@ async function renderAd(themeId, data) {
     serveUrl: bundleLocation,
     codec: "h264",
     outputLocation: outputFile,
-    inputProps,
-    concurrency: 2, // ✅ FIX 4: reduced for Render
+    inputProps: data,
+    concurrency: 2,
   });
 
   return outputFile;
 }
 
-/* ---------------- CLOUDINARY UPLOAD ---------------- */
+/* ---------------- UPLOAD ---------------- */
 
 async function uploadVideo(filePath, categoryID, token, description) {
   try {
@@ -126,49 +126,47 @@ async function uploadVideo(filePath, categoryID, token, description) {
       folder: "generated_ads",
     });
 
-    console.log("Uploaded to Cloudinary:", result.secure_url);
-
     const videoUrl = result.secure_url;
+
     await sendVideoToLaravel(videoUrl, categoryID, token, description);
 
-    return result.secure_url;
+    return videoUrl;
   } catch (error) {
     console.error("Cloudinary upload failed:", error);
   }
 }
 
-/* ---------------- GENERIC RENDER HANDLER ---------------- */
+/* ---------------- HANDLER ---------------- */
 
 async function handleRender(req, res, theme) {
   try {
-
-    if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+    // 🔥 ensure both folders every request
+    ensureDir(uploadsDir);
+    ensureDir(videosDir);
 
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(" ")[1];
 
     const body = req.body;
-    const description = body.description;
-    const categoryID = body.category_id;
 
-    // ✅ FIX 5: dynamic base URL for production
     const baseUrl =
       process.env.BASE_URL || `http://localhost:${PORT}`;
 
+    // ✅ ABSOLUTE PATHS (FINAL FIX)
     const images =
-  req.files?.images?.map(
-    (file) => path.join(uploadsDir, file.filename)
-  ) || [];
+      req.files?.images?.map((file) =>
+        path.join(uploadsDir, file.filename)
+      ) || [];
 
     const audio = req.files?.audio?.[0]
-  ? path.join(uploadsDir, req.files.audio[0].filename)
-  : null;
+      ? path.join(uploadsDir, req.files.audio[0].filename)
+      : null;
 
     const video = req.files?.video?.[0]
-  ? path.join(uploadsDir, req.files.video[0].filename)
-  : null;
+      ? path.join(uploadsDir, req.files.video[0].filename)
+      : null;
+
+    console.log("Images:", images);
 
     const data = {
       ...body,
@@ -178,19 +176,24 @@ async function handleRender(req, res, theme) {
       duration: Number(body.duration),
     };
 
+    console.log("🔥 Rendering started");
+
     const videoPath = await renderAd(theme, data);
 
-   const tempVideoUrl = `${baseUrl}/videos/${path.basename(videoPath)}`;
+    console.log("✅ Render done:", videoPath);
+
+    // ✅ FIXED URL
+    const tempVideoUrl = `${baseUrl}/videos/${path.basename(videoPath)}`;
 
     res.json({
       success: true,
       video: tempVideoUrl,
     });
 
-    // background upload
-    uploadVideo(videoPath, categoryID, token, description);
+    uploadVideo(videoPath, body.category_id, token, body.description);
+
   } catch (error) {
-    console.error(error);
+    console.error("🔥 HANDLE ERROR:", error);
 
     res.status(500).json({
       success: false,
@@ -199,7 +202,7 @@ async function handleRender(req, res, theme) {
   }
 }
 
-/* ---------------- TEMP FILE CLEANUP ---------------- */
+/* ---------------- CLEANUP (FINAL SAFE) ---------------- */
 
 const TEMP_FILE_MAX_AGE = 20 * 60 * 1000;
 
@@ -213,27 +216,20 @@ const cleanupOldFiles = (directory) => {
 
   try {
     files = fs.readdirSync(directory);
-  } catch (err) {
-    // ✅ Folder doesn't exist → just skip
-    return;
+  } catch {
+    return; // folder missing → ignore
   }
 
-  files.forEach((file) => {
+  for (const file of files) {
     try {
       const filePath = path.join(directory, file);
       const stats = fs.statSync(filePath);
 
-      const age = Date.now() - stats.mtimeMs;
-
-      if (age > TEMP_FILE_MAX_AGE) {
+      if (Date.now() - stats.mtimeMs > TEMP_FILE_MAX_AGE) {
         fs.unlinkSync(filePath);
-        console.log(`Deleted temp file: ${file}`);
       }
-    } catch (err) {
-      // ✅ Skip individual file errors
-      console.error("File cleanup error:", err.message);
-    }
-  });
+    } catch {}
+  }
 };
 
 /* ---------------- ROUTES ---------------- */
@@ -244,32 +240,30 @@ const mediaUpload = upload.fields([
   { name: "video", maxCount: 1 },
 ]);
 
-app.post("/render/modern", mediaUpload, (req, res) => {
-  handleRender(req, res, "ThemeModern");
-});
+app.post("/render/modern", mediaUpload, (req, res) =>
+  handleRender(req, res, "ThemeModern")
+);
 
-app.post("/render/dynamic", mediaUpload, (req, res) => {
-  handleRender(req, res, "ThemeDynamic");
-});
+app.post("/render/dynamic", mediaUpload, (req, res) =>
+  handleRender(req, res, "ThemeDynamic")
+);
 
-app.post("/render/retro", mediaUpload, (req, res) => {
-  handleRender(req, res, "ThemeRetro");
-});
+app.post("/render/retro", mediaUpload, (req, res) =>
+  handleRender(req, res, "ThemeRetro")
+);
 
-app.post("/render/cinematic", mediaUpload, (req, res) => {
-  handleRender(req, res, "ThemeCinematic");
-});
-
-/* ---------------- TEST ROUTE ---------------- */
+app.post("/render/cinematic", mediaUpload, (req, res) =>
+  handleRender(req, res, "ThemeCinematic")
+);
 
 app.get("/", (req, res) => {
-  res.send("hello admin ! greeting from remotion renderer server");
+  res.send("Remotion server running");
 });
 
-/* ---------------- SERVER START ---------------- */
+/* ---------------- START ---------------- */
 
 const PORT = process.env.PORT || 8000;
 
 app.listen(PORT, () => {
-  console.log(`Remotion render server running on port ${PORT}`);
+  console.log(`Server running on ${PORT}`);
 });
