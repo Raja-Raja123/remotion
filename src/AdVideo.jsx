@@ -1,5 +1,5 @@
 import { AbsoluteFill, Img, Audio } from "remotion";
-
+import { staticFile } from "remotion";
 export const AdVideo = ({ productName, price, image,audio }) => {
   return (
     <AbsoluteFill

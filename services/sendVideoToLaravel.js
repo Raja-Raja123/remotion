@@ -1,6 +1,6 @@
-import axios from "axios";
+const axios = require("axios");
 
-export const sendVideoToLaravel = async (videoUrl, categoryID, token,description) => {
+const sendVideoToLaravel = async (videoUrl, categoryID, token,description) => {
   try {
     console.log(categoryID)
     const response = await axios.post(
@@ -25,3 +25,5 @@ export const sendVideoToLaravel = async (videoUrl, categoryID, token,description
     throw error;
   }
 };
+
+module.exports = { sendVideoToLaravel };
